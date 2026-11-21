@@ -1,199 +1,153 @@
-# Crop Maturity AI
+# Crop Maturity AI – Tomato Harvest Readiness
 
-Crop Maturity AI analyses tomato photos, estimates the maturity of detected tomatoes, and reports crop counts and harvest readiness. The project includes a FastAPI backend, a React web dashboard, and a Flutter mobile app for Android and iOS.
+**AI-powered tomato maturity detection and harvest-readiness analysis, delivered as a website and a Flutter mobile app.**
 
 ![Python](https://img.shields.io/badge/Python-3.11-3776AB?logo=python&logoColor=white)
-![YOLOv8](https://img.shields.io/badge/YOLOv8-segmentation-00A3E0)
+![YOLOv8](https://img.shields.io/badge/YOLOv8-instance%20segmentation-00A3E0)
 ![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
 ![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black)
 ![Flutter](https://img.shields.io/badge/Flutter-02569B?logo=flutter&logoColor=white)
+![mAP@50](https://img.shields.io/badge/mask%20mAP%4050-0.900-brightgreen)
 
-> Harvest readiness is an AI-assisted indicator of the maturity mix in an image. It is not a guaranteed harvest date or a substitute for in-field judgment.
+Farmers judge tomato ripeness by eye, which is slow and subjective. Take a photo (or scan with the live camera) and the system **detects every tomato, classifies it as unripe, semiripe or ripe, counts them, scores harvest readiness, and explains what to do next in plain language**.
+
+> Built during an internship at **Rasa.AI Labs, Chennai** by Anisha J, Thahrinah H and Jasmin Nirmala D (SSM Institute of Engineering and Technology, Dindigul).
+
+## Key Results
+
+| Metric | Value |
+|---|---|
+| Mask mAP@50 (validation, best epoch) | **0.900** |
+| Mask precision / recall | 0.809 / 0.863 |
+| Mask mAP@50–95 | 0.794 |
+| Per-class AP@50 (unripe / semiripe / ripe) | 0.942 / 0.863 / 0.897 |
+| Counting F1 on 60 unseen test images (543 tomatoes) | **0.89** (precision 0.91, recall 0.87) |
+| Average count error | 1.25 tomatoes per image |
+| Count accuracy on clear / partly hidden fruit | 96% / 91% of true count |
+| Inference on CPU (640 px, with CLIP check) | ~1.0 s per image (~2.2 FPS without the check) |
+
+Blurry and low-light photos are detected and flagged to the user, because accuracy drops sharply in those conditions (see [Limitations](#limitations)).
 
 ## Features
 
-- Detects and segments tomatoes into three stages: unripe, semiripe, and ripe.
-- Uses CLIP to help filter out objects that are not tomatoes.
-- Reports counts, maturity percentages, and a harvest-readiness score.
-- Provides AI analysis and agricultural question answering with knowledge-base sources.
-- Saves analysis history and supports daily reports.
-- Includes a web dashboard and a mobile app with crop inspection, live camera, history, advisor, and harvesting guide screens.
+- **Instance segmentation** with YOLOv8m-seg into 3 maturity stages: unripe, semiripe, ripe
+- **CLIP verification** to remove non-tomato look-alikes (leaves, stems, red objects)
+- **Harvest-readiness score** with status bands and pick-timing advice (Pick Today / Pick in 2–3 Days / Leave on Vine)
+- **Image-quality checks** for blur and low light before analysis
+- **Live camera scanning** in the website and the mobile app
+- **AI advisor (RAG)**: Gemini answers questions from an agricultural knowledge base (ChromaDB), shows its sources, and only quotes the measured numbers, so it never invents counts
+- **History and trends**: saved inspections, ripeness-progression charts and a downloadable daily farm report
+- **Two clients, one backend**: React website and Flutter app (Android and iOS)
 
-## How it works
+## Screenshots
+
+| Mobile app | | | |
+|:--:|:--:|:--:|:--:|
+| <img src="docs/images/s_home.jpg" width="150"> | <img src="docs/images/s_verdict.jpg" width="150"> | <img src="docs/images/s_live.jpg" width="150"> | <img src="docs/images/s_progress.jpg" width="150"> |
+| Home | Harvest verdict | Live scan | Ripeness trend |
+| <img src="docs/images/s_report.jpg" width="150"> | <img src="docs/images/s_chat.jpg" width="150"> | | |
+| Daily report | AI advisor with sources | | |
+
+| Website | |
+|:--:|:--:|
+| <img src="docs/images/w_home.jpg" width="380"> | <img src="docs/images/w_inspect.jpg" width="380"> |
+| Home | Original vs. marked tomatoes |
+
+## How It Works
 
 ```text
-Image -> YOLOv8m-seg -> CLIP tomato check -> Counts and readiness -> AI recommendations
+Photo / camera frame
+  → quality check (blur, brightness)
+  → YOLOv8m-seg: segment + classify each tomato
+  → CLIP: reject non-tomato detections
+  → counts, maturity %, harvest readiness
+  → RAG + Gemini: explanation, report, advice (numbers checked against measured values)
 ```
 
-Readiness is calculated as:
+**Harvest readiness** = `ripe % + 0.5 × semiripe %`
 
-```text
-ripe percentage + (0.5 x semiripe percentage)
-```
+| Readiness | Status |
+|---|---|
+| ≥ 85% | Ready to harvest |
+| 60–84% | Approaching harvest stage |
+| 30–59% | Still developing |
+| < 30% | Not ready |
 
-## Requirements
+Example: 4 tomatoes detected (0 ripe, 3 semiripe, 1 unripe) → 0 + 0.5 × 75 = 37.5% → *Still developing*.
 
-- Windows 10/11 (commands below use PowerShell), macOS, or Linux.
-- Python 3.11.
-- Git.
-- Node.js and npm for the web dashboard.
-- Flutter SDK and Android Studio/Android SDK for Android development.
-- Xcode on macOS to build or run the iOS app.
+## Model and Data
 
-## Setup
+- **Dataset:** [LaboroTomato](https://github.com/laboroai/LaboroTomato), converted to YOLO segmentation format with 3 classes
+- **Split:** 547 training images (6,612 tomatoes: 4,363 unripe, 1,116 semiripe, 1,133 ripe), 60 validation, 60 test
+- **Training:** pretrained yolov8m-seg, 1280 px, batch 8, early stopping (best epoch 58 of 78)
 
-### 1. Get the project
+| Normalised confusion matrix | Precision–recall curves |
+|:--:|:--:|
+| <img src="docs/images/cm_norm.jpg" width="380"> | <img src="docs/images/pr.jpg" width="380"> |
 
-```powershell
-git clone https://github.com/Jasmin-IT/CROPMATURITY-AI.git
-cd CROPMATURITY-AI
-```
+## Tech Stack
 
-### 2. Install backend dependencies
+| Layer | Technology |
+|---|---|
+| Vision | Python 3.11, PyTorch, Ultralytics YOLOv8, OpenCV, CLIP (Hugging Face) |
+| GenAI | Gemini (with configurable backup provider), RAG, ChromaDB embeddings |
+| Backend | FastAPI, Pydantic, Uvicorn, SQLite history |
+| Clients | React (website), Flutter / Dart (Android and iOS) |
 
-From the project root, create and activate a Python environment, then install the packages:
-
-```powershell
-py -3.11 -m venv .venv
-.\.venv\Scripts\Activate.ps1
-python -m pip install --upgrade pip
-pip install -r requirements.txt
-```
-
-If PowerShell prevents environment activation, either allow local scripts for your user or run the environment's Python directly:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt
-```
-
-The detector weights are expected at `models/yolov8m_seg_best.pt`. On first startup, the CLIP verifier may need an internet connection to download its pretrained model.
-
-### 3. Configure optional AI credentials
-
-The backend can use rule-based responses without an API key. To enable Gemini responses, create a `.env` file in the project root:
-
-```dotenv
-GEMINI_API_KEY=your_gemini_api_key
-```
-
-Keep `.env` private and do not commit API keys. Optional backup-provider settings are `BACKUP_API_KEY`, `BACKUP_BASE_URL`, and `BACKUP_MODEL`.
-
-### 4. Prepare the agricultural knowledge index (optional)
-
-The RAG knowledge index is stored under `data/chroma/`. To build or refresh it from the Markdown files in `knowledge_base/`, run:
-
-```powershell
-python -m app.rag
-```
-
-This recreates the index. You can skip this step if a usable index is already present.
-
-## Run the application
-
-Run the backend in its own PowerShell terminal from the project root:
-
-```powershell
-.\.venv\Scripts\python.exe -m uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
-```
-
-The API documentation is at [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs), and the health check is at [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health).
-
-### Run the web dashboard
-
-In another terminal from the project root:
-
-```powershell
-npm install --prefix frontend
-npm run dev
-```
-
-Open the local URL printed by Vite in the terminal. The web dashboard expects the backend to be running on port 8000.
-
-### Run the mobile app on an Android emulator
-
-Install Flutter and Android Studio, then check the Android toolchain:
-
-```powershell
-flutter doctor
-```
-
-Accept any Android SDK licenses requested by Flutter and install the Android SDK platform it requests. In another terminal:
-
-```powershell
-cd mobile
-flutter pub get
-flutter devices
-flutter run
-```
-
-The app's default API address, `http://10.0.2.2:8000`, is for an Android emulator connecting to the backend on the same computer. Keep the backend terminal running.
-
-### Run the mobile app on a physical Android phone
-
-1. Connect the phone and computer to the same Wi-Fi network. Enable Developer options and USB debugging on the phone, connect it by USB, and approve the debugging prompt.
-2. Start the backend from the project root so the phone can reach it:
-
-   ```powershell
-   .\.venv\Scripts\python.exe -m uvicorn app.api:app --reload --host 0.0.0.0 --port 8000
-   ```
-
-3. Run `ipconfig` and note the computer's IPv4 address under the active Wi-Fi adapter.
-4. In a second terminal, enter the mobile project, find the device ID, then run the app with your computer's address:
-
-   ```powershell
-   cd mobile
-   flutter pub get
-   flutter devices
-   flutter run -d DEVICE_ID --dart-define=API_BASE=http://"your ip address from the ip config":8000
-   ```
-
-   Replace `DEVICE_ID` with the ID from `flutter devices` and  the computer's current Wi-Fi IPv4 address. If Windows Firewall prompts you, allow Python on private networks.
-
-The computer's Wi-Fi address can change, so update `API_BASE` when necessary. Keep the backend running while using the app. For additional mobile notes, see [mobile/README.md](mobile/README.md).
-
-### iOS
-
-Run iOS builds on macOS with Xcode installed. For the iOS Simulator, use the local backend address:
-
-```bash
-cd mobile
-flutter pub get
-flutter run --dart-define=API_BASE=http://127.0.0.1:8000
-```
-
-For a physical iPhone, use the computer's LAN IP for `API_BASE` and start the backend with `--host 0.0.0.0`, as described above for an Android phone.
-
-## API endpoints
+## API
 
 | Method | Endpoint | Purpose |
 |---|---|---|
 | `GET` | `/health` | Backend and model status |
 | `POST` | `/predict` | Analyse an uploaded image |
-| `GET` | `/history` | Retrieve saved analyses |
-| `GET` | `/crop-statistics` | Retrieve crop counts |
-| `GET` | `/harvest-readiness` | Retrieve the latest readiness score |
-| `POST` | `/ai/analyze` | Generate analysis and recommendations |
-| `POST` | `/ai/report` | Generate a daily report |
-| `POST` | `/ai/chat` | Ask a question with agricultural knowledge-base context |
+| `GET` | `/history` | Saved analyses |
+| `GET` | `/crop-statistics` | Crop counts |
+| `GET` | `/harvest-readiness` | Latest readiness score |
+| `POST` | `/ai/analyze` | AI analysis and recommendations |
+| `POST` | `/ai/report` | Daily report |
+| `POST` | `/ai/chat` | Ask a question (with knowledge-base sources) |
 
-## Project structure
+Interactive docs: `http://127.0.0.1:8000/docs`
+
+## Quick Start
+
+```bash
+git clone https://github.com/Jasmin-IT/CROPMATURITY-AI.git
+cd CROPMATURITY-AI
+python -m venv .venv && source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+# optional: add GEMINI_API_KEY=your_key to a .env file (rule-based answers work without it)
+python -m uvicorn app.api:app --reload --host 127.0.0.1 --port 8000
+```
+
+Model weights are expected at `models/yolov8m_seg_best.pt`.
+
+**Website:** `npm install --prefix frontend` then `npm run dev`
+
+**Mobile app:**
+```bash
+cd mobile && flutter pub get
+flutter run --dart-define=API_BASE=http://10.0.2.2:8000   # Android emulator; use your PC's LAN IP for a real phone
+```
+
+## Project Structure
 
 ```text
-app/              FastAPI backend, detection, database, AI, and RAG
-frontend/         React web dashboard
-mobile/           Flutter Android/iOS app
-knowledge_base/   Agricultural reference documents used by RAG
-models/           YOLO model weights
-scripts/          Dataset preparation, evaluation, and benchmarks
+app/              FastAPI backend, detection, database, AI and RAG
+frontend/         React website
+mobile/           Flutter app (Android / iOS)
+knowledge_base/   Agricultural documents for RAG
+models/           YOLO weights
+scripts/          Dataset preparation, evaluation, benchmarks
 ```
 
 ## Limitations
 
-- The model has three maturity classes; over-mature is not a separate class.
-- Semiripe is the hardest class to distinguish because it lies between unripe and ripe.
-- CLIP filtering reduces non-tomato detections but cannot eliminate every look-alike.
-- Dark, blurry, crowded, or otherwise difficult images can reduce accuracy. Treat results as guidance and review them in context.
+- Semiripe is the hardest class: ripe and semiripe fruit are often confused, and the training data is about two-thirds unripe.
+- Blurry or dark photos reduce counts sharply (31% and 48% of the true count in testing); the app warns the user to retake the photo.
+- Very crowded scenes are undercounted (70% of the true count).
+- Readiness is an AI-assisted indicator of the maturity mix, not a guaranteed harvest date. The status bands are project-defined and should be validated by agronomists.
 
-## Dataset and credits
+## Credits
 
-The model was trained using [LaboroTomato](https://github.com/laboroai/LaboroTomato). The project uses [Ultralytics YOLO](https://github.com/ultralytics/ultralytics), [OpenAI CLIP](https://github.com/openai/CLIP), ChromaDB, FastAPI, Flutter, and React. Review the licenses for the datasets and dependencies before redistributing them.
+[LaboroTomato](https://github.com/laboroai/LaboroTomato) · [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) · [OpenAI CLIP](https://github.com/openai/CLIP) · ChromaDB · FastAPI · Flutter · React. Please review dataset and dependency licenses before redistributing.
