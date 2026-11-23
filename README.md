@@ -112,7 +112,7 @@ Interactive docs: `http://127.0.0.1:8000/docs`
 ## Quick Start
 
 ```bash
-git clone https://github.com/Jasmin-IT/CROPMATURITY-AI.git
+git clone https://github.com/thahrinahhikmath/CROPMATURITY-AI.git
 cd CROPMATURITY-AI
 python -m venv .venv && source .venv/bin/activate   # Windows: .\.venv\Scripts\Activate.ps1
 pip install -r requirements.txt
